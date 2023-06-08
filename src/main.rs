@@ -1,4 +1,7 @@
+use std::fmt::Display;
 use std::hash::Hash;
+use std::fs::File;
+use std::io::{read_to_string, BufReader};
 
 use huff_and_puff::types::*;
 use huff_and_puff::funcs::*;
@@ -28,7 +31,7 @@ struct Huffman<T> {
 
 impl<T> Huffman<T>
 where
-    T: Copy + Eq + Hash
+    T: Copy + Eq + Hash + Display
 {
     fn from_iter(s: impl IntoIterator<Item = T>) -> Self {
         let symbol_probs = symbol_probabilities(s);
@@ -36,11 +39,49 @@ where
         let table = generate_table(&tree);
         Huffman { tree, table }
     }
+
+    fn encode(&self, symbols: impl IntoIterator<Item = T>) -> Result<HuffmanCode, &str> {
+        let mut encoding = Vec::new();
+
+        for s in symbols.into_iter() {
+            let s_code = self.table.get(&s).expect(format!("Symbol: '{s}' not in table").as_str());
+            encoding.extend_from_slice(&s_code);
+        }
+
+        Ok(encoding)
+    }
+
+    fn decode(&self, code: HuffmanCode) -> Result<Vec<T>, &str> {
+        let mut walker = &self.tree;
+        let mut message = Vec::new();
+
+        for c in code.into_iter() {
+            match c {
+                Bit::L => walker = &walker.left().unwrap(),
+                Bit::R => walker = &walker.right().unwrap(),
+            }
+            if let HuffmanTree::Leaf { p: _, symbol } = walker {
+                message.push(symbol.clone());
+                walker = &self.tree;
+            }
+        }
+
+        Ok(message)
+    }
 }
 
-fn main() {
-    let symbols = "aaaabbbccd";
-    let huffman = Huffman::from_iter(symbols.chars());
-    println!("{:#?}", huffman.tree);
-    println!("{:#?}", huffman.table);
+fn main() -> std::io::Result<()> {
+    let text_path = "alice_in_wonderland.txt";
+    let f = File::open(text_path)?;
+    let f = BufReader::new(f);
+    let s = read_to_string(f)?;
+
+    let huffman = Huffman::from_iter(s.split_ascii_whitespace());
+    // println!("{:?}", huffman.tree);
+    // println!("{:?}", huffman.table);
+    let code = huffman.encode("I once was a white rabbit".split_ascii_whitespace()).unwrap();
+    println!("{:?}", &code);
+    println!("{:?}", huffman.decode(code));
+
+    Ok(())
 }
